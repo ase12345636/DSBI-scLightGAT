@@ -1,0 +1,27 @@
+# Conda package specification for a fresh Linux environment.
+# conda create -n scLightGAT_data --file requirements.txt -c conda-forge -c bioconda
+# Do not append another Python version on the command line.
+python=3.10
+pip
+numpy
+pandas
+scipy
+anndata
+scanpy
+matplotlib
+python-igraph
+leidenalg
+scikit-misc
+requests
+beautifulsoup4
+h5py
+scikit-learn
+scrublet=0.2.3
+# Algorithms used by manual review and Scrublet.
+umap-learn
+scikit-image
+python-annoy
+r-base
+r-matrix
+r-seuratobject
+r-seurat
