@@ -2,6 +2,6 @@
 result/
 __pycache__/
 *.py[cod]
-scLightGAT_data/
+scLightGAT_data*/
 plots/
 .DS_Store
