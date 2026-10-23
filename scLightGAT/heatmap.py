@@ -37,6 +37,8 @@ ALL_METHODS = (
     "CHETAH",
     "Seurat",
     "SingleR",
+    "scANVI",
+    "scGraphformer",
     "scGPT",
     "scLightGAT",
 )

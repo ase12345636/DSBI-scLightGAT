@@ -10,7 +10,9 @@ completed run.
 import argparse
 from pathlib import Path
 from typing import Dict, List, Tuple
+from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
+from matplotlib.path import Path as MplPath
 import numpy as np
 import pandas as pd
 
@@ -18,7 +20,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "result"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "plots" / "bar_chart"
 
-ALL_METHODS = ["Celltypist", "CHETAH", "Seurat", "SingleR", "scGPT", "scLightGAT"]
+ALL_METHODS = [
+    "Celltypist",
+    "CHETAH",
+    "Seurat",
+    "SingleR",
+    "scANVI",
+    "scGraphformer",
+    "scGPT",
+    "scLightGAT",
+]
 SUBTYPE_BROAD_TYPES = ["B_cell", "CD4_T_cell", "CD8_T_cell", "DC", "Plasma_cell"]
 COMPARTMENTS = (("immune", "Immune"), ("non-immune", "Non-immune"))
 BROAD_TYPE_DATASETS = (
@@ -33,7 +44,20 @@ BROAD_TYPE_DATASETS = (
 
 METHOD_LABELS = {m: m for m in ALL_METHODS}
 COLOR_MAP = plt.get_cmap("Set3")
-METHOD_COLORS = {m: COLOR_MAP(i) for i, m in enumerate(ALL_METHODS)}
+# Keep the six established method colors stable when adding new baselines.
+METHOD_COLOR_INDEX = {
+    "Celltypist": 0,
+    "CHETAH": 1,
+    "Seurat": 2,
+    "SingleR": 3,
+    "scGPT": 4,
+    "scLightGAT": 5,
+    "scANVI": 6,
+    "scGraphformer": 7,
+}
+METHOD_COLORS = {
+    method: COLOR_MAP(METHOD_COLOR_INDEX[method]) for method in ALL_METHODS
+}
 
 METRIC_GROUPS = [
     (
@@ -308,6 +332,85 @@ def _collect_broad_average_runtime(
     return stats
 
 
+def _runtime_break_limits(
+    means: np.ndarray,
+    stds: np.ndarray,
+) -> Tuple[Tuple[float, float], Tuple[float, float], int] | None:
+    """Return automatic lower/upper limits when one runtime is an outlier."""
+    if means.size < 2:
+        return None
+
+    lower_edges = np.maximum(means - stds, 0.0)
+    upper_edges = means + stds
+    order = np.argsort(upper_edges)
+    outlier_index = int(order[-1])
+    next_highest = float(upper_edges[order[-2]])
+
+    # Keep a conventional axis unless the tallest bar is clearly separated.
+    if next_highest <= 0.0 or lower_edges[outlier_index] < next_highest * 3.0:
+        return None
+
+    lower_top = next_highest * 1.12
+    outlier_mean = float(means[outlier_index])
+    outlier_low = float(lower_edges[outlier_index])
+    outlier_high = float(upper_edges[outlier_index])
+    upper_padding = max(
+        outlier_mean * 0.015,
+        (outlier_high - outlier_low) * 2.0,
+        1.0,
+    )
+    upper_bottom = outlier_low - upper_padding
+    upper_top = outlier_high + upper_padding
+    if upper_bottom <= lower_top:
+        return None
+
+    return (0.0, lower_top), (upper_bottom, upper_top), outlier_index
+
+
+def _draw_horizontal_break(
+    ax: plt.Axes,
+    y: float,
+    *,
+    x_center: float,
+    width_points: float,
+    transform,
+    erase_underlay: bool = False,
+) -> None:
+    """Draw a fixed-size horizontal wave at an axis discontinuity."""
+    phase = np.linspace(0.0, 2.0 * np.pi, 41)
+    marker = MplPath(
+        np.column_stack(
+            (
+                np.linspace(-1.0, 1.0, phase.size),
+                (2.2 / width_points) * np.sin(phase),
+            )
+        )
+    )
+    marker_kwargs = {
+        "linestyle": "none",
+        "marker": marker,
+        "markersize": width_points,
+        "transform": transform,
+        "clip_on": False,
+        "zorder": 7,
+    }
+    if erase_underlay:
+        ax.plot(
+            [x_center],
+            [y],
+            color="white",
+            markeredgewidth=3.0,
+            **marker_kwargs,
+        )
+    ax.plot(
+        [x_center],
+        [y],
+        color="#222222",
+        markeredgewidth=0.9,
+        **marker_kwargs,
+    )
+
+
 def _plot_broad_average_runtime(args: argparse.Namespace) -> None:
     """Write one tool-level chart for average broad-type runtime."""
     stats = _collect_broad_average_runtime(args)
@@ -319,36 +422,115 @@ def _plot_broad_average_runtime(args: argparse.Namespace) -> None:
     means = np.asarray([stats[method][0] for method in methods], dtype=float)
     stds = np.asarray([stats[method][1] for method in methods], dtype=float)
     x = np.arange(len(methods))
+    break_limits = _runtime_break_limits(means, stds)
+    bar_kwargs = {
+        "yerr": stds,
+        "capsize": 4,
+        "color": [METHOD_COLORS[method] for method in methods],
+        "edgecolor": "black",
+        "linewidth": 0.7,
+        "alpha": 0.9,
+    }
 
-    fig, ax = plt.subplots(figsize=(11, 7), constrained_layout=True)
-    ax.bar(
-        x,
-        means,
-        yerr=stds,
-        capsize=4,
-        color=[METHOD_COLORS[method] for method in methods],
-        edgecolor="black",
-        linewidth=0.7,
-        alpha=0.9,
-    )
-    ax.set_xticks(x)
-    ax.set_xticklabels(
+    if break_limits is None:
+        fig, ax = plt.subplots(figsize=(11, 7), constrained_layout=True)
+        ax.bar(x, means, **bar_kwargs)
+        axes = (ax,)
+        upper = float(np.max(means + stds)) if means.size else 1.0
+        ax.set_ylim(0.0, max(upper * 1.08, 1.0))
+    else:
+        lower_limits, upper_limits, outlier_index = break_limits
+        fig, (upper_ax, lower_ax) = plt.subplots(
+            2,
+            1,
+            sharex=True,
+            figsize=(11, 7),
+            gridspec_kw={"height_ratios": (1.0, 2.7), "hspace": 0.045},
+        )
+        for ax in (upper_ax, lower_ax):
+            ax.bar(x, means, **bar_kwargs)
+        upper_ax.set_ylim(*upper_limits)
+        lower_ax.set_ylim(*lower_limits)
+        upper_ax.spines["bottom"].set_visible(False)
+        lower_ax.spines["top"].set_visible(False)
+        upper_ax.tick_params(
+            axis="x",
+            which="both",
+            bottom=False,
+            labelbottom=False,
+        )
+        lower_ticks = lower_ax.get_yticks()
+        upper_ticks = upper_ax.get_yticks()
+        lower_span = lower_limits[1] - lower_limits[0]
+        upper_span = upper_limits[1] - upper_limits[0]
+        lower_ax.set_yticks(
+            lower_ticks[
+                (lower_ticks >= lower_limits[0])
+                & (lower_ticks < lower_limits[1] - lower_span * 0.03)
+            ]
+        )
+        upper_ax.set_yticks(
+            upper_ticks[
+                (upper_ticks > upper_limits[0] + upper_span * 0.03)
+                & (upper_ticks <= upper_limits[1])
+            ]
+        )
+        axes = (upper_ax, lower_ax)
+
+        # Fixed-point markers keep the upper and lower waves identical even
+        # though the two panels have different heights.
+        for ax, boundary_y in ((upper_ax, 0.0), (lower_ax, 1.0)):
+            _draw_horizontal_break(
+                ax,
+                boundary_y,
+                x_center=0.0,
+                width_points=16.0,
+                transform=ax.transAxes,
+                erase_underlay=True,
+            )
+            _draw_horizontal_break(
+                ax,
+                boundary_y,
+                x_center=float(x[outlier_index]),
+                width_points=68.0,
+                transform=ax.get_xaxis_transform(),
+                erase_underlay=True,
+            )
+
+        fig.subplots_adjust(left=0.10, right=0.98, bottom=0.18, top=0.89)
+        upper_position = upper_ax.get_position()
+        lower_position = lower_ax.get_position()
+        right_spine = upper_ax.spines["right"]
+        fig.add_artist(
+            Line2D(
+                [upper_position.x1, upper_position.x1],
+                [lower_position.y1, upper_position.y0],
+                transform=fig.transFigure,
+                color=right_spine.get_edgecolor(),
+                linewidth=right_spine.get_linewidth(),
+                zorder=5,
+            )
+        )
+
+    bottom_ax = axes[-1]
+    bottom_ax.set_xticks(x)
+    bottom_ax.set_xticklabels(
         [METHOD_LABELS.get(method, method) for method in methods],
         rotation=20,
         ha="right",
         fontsize=11,
     )
-    ax.set_ylabel("")
-    ax.set_title(
+    axes[0].set_title(
         "Average Broad-type Runtime",
         fontsize=16,
         fontweight="bold",
         pad=14,
     )
-    ax.grid(axis="y", linestyle="--", alpha=0.3)
-    ax.set_axisbelow(True)
-    upper = float(np.max(means + stds)) if means.size else 1.0
-    ax.set_ylim(0.0, max(upper * 1.08, 1.0))
+    for ax in axes:
+        ax.set_ylabel("")
+        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ax.set_axisbelow(True)
+
     save_path = args.out_dir / "Summary_Broad_Type_Average_Runtime.png"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path, dpi=300, bbox_inches="tight")

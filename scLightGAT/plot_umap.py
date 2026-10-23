@@ -1,4 +1,4 @@
-"""Create one shared 4x2 UMAP comparison figure for each test set.
+"""Create one shared 5x2 UMAP comparison figure for each test set.
 
 All panels reuse the UMAP coordinates saved by one completed method run.
 scLightGAT is preferred when available; UMAP is never recomputed here.
@@ -43,6 +43,8 @@ ALL_METHODS = [
     "CHETAH",
     "Seurat",
     "SingleR",
+    "scANVI",
+    "scGraphformer",
     "scGPT",
     "scLightGAT",
 ]
@@ -52,10 +54,12 @@ PANEL_POSITIONS = {
     "Celltypist": (0, 1),
     "CHETAH": (0, 2),
     "Seurat": (0, 3),
-    "SingleR": (1, 0),
-    "scGPT": (1, 1),
-    "scLightGAT": (1, 2),
-    "Legend": (1, 3),
+    "SingleR": (0, 4),
+    "scANVI": (1, 0),
+    "scGraphformer": (1, 1),
+    "scGPT": (1, 2),
+    "scLightGAT": (1, 3),
+    "Legend": (1, 4),
 }
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -81,7 +85,7 @@ DEFAULT_TEST_PATHS = [
 DEFAULT_OUT_DIR = PROJECT_ROOT / "plots" / "umap"
 DEFAULT_SUBTYPE_OUT_DIR = DEFAULT_OUT_DIR / "Subtype"
 
-FIGSIZE = (23.5, 12)
+FIGSIZE = (29, 12)
 POINT_SIZE = 4.0
 DPI = 300
 
@@ -531,7 +535,7 @@ def plot_dataset(
 
     palette = _palette(truth, predictions)
 
-    fig, axes = plt.subplots(2, 4, figsize=FIGSIZE)
+    fig, axes = plt.subplots(2, 5, figsize=FIGSIZE)
 
     r, c = PANEL_POSITIONS["Ground truth"]
     _plot_panel(
