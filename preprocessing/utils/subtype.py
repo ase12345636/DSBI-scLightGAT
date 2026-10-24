@@ -241,15 +241,23 @@ def attach_source_subtypes(adata, dataset: str):
 
     resolved = mapped.notna()
     if resolved.any():
-        broad = adata.obs["Celltype_training"].astype("object")
-        expected_parent = mapped.map(_SUBTYPE_PARENT)
-        mismatch = resolved & broad.ne(expected_parent)
+        # Compare only rows with a resolved subtype.  Comparing the complete
+        # object Series evaluates ``pd.NA != pd.NA`` for unresolved rows before
+        # the ``resolved`` mask can be applied, which raises because the boolean
+        # value of ``pd.NA`` is undefined.
+        resolved_index = mapped.index[resolved]
+        broad = adata.obs.loc[resolved_index, "Celltype_training"].astype("string")
+        expected_parent = mapped.loc[resolved_index].map(_SUBTYPE_PARENT).astype(
+            "string"
+        )
+        mismatch = broad.ne(expected_parent).fillna(True)
         if mismatch.any():
+            mismatch_index = mismatch.index[mismatch]
             examples = pd.DataFrame(
                 {
-                    "broad": broad.loc[mismatch],
-                    "subtype": mapped.loc[mismatch],
-                    "source_label": source_labels.loc[mismatch],
+                    "broad": broad.loc[mismatch_index],
+                    "subtype": mapped.loc[mismatch_index],
+                    "source_label": source_labels.loc[mismatch_index],
                 }
             ).head(5)
             raise ValueError(
@@ -286,13 +294,18 @@ def validate_subtype_obs(obs: pd.DataFrame) -> None:
     if unexpected:
         raise ValueError(f"Unexpected subtype labels: {sorted(unexpected)}")
 
-    expected_parent = subtype.loc[resolved].map(_SUBTYPE_PARENT)
-    mismatch = broad.loc[resolved].ne(expected_parent)
+    resolved_index = subtype.index[resolved]
+    resolved_broad = broad.loc[resolved_index].astype("string")
+    expected_parent = subtype.loc[resolved_index].map(_SUBTYPE_PARENT).astype(
+        "string"
+    )
+    mismatch = resolved_broad.ne(expected_parent).fillna(True)
     if mismatch.any():
+        mismatch_index = mismatch.index[mismatch]
         examples = pd.DataFrame(
             {
-                "broad": broad.loc[resolved].loc[mismatch],
-                "subtype": subtype.loc[resolved].loc[mismatch],
+                "broad": resolved_broad.loc[mismatch_index],
+                "subtype": subtype.loc[mismatch_index],
             }
         ).head(5)
         raise ValueError(
