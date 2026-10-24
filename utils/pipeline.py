@@ -10,12 +10,14 @@ from __future__ import annotations
 import argparse
 import copy
 import gc
+import hashlib
 import json
 import random
 import shutil
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -51,7 +53,7 @@ def optional_key(value):
     return None if value.lower() in {"", "none", "null"} else value
 
 
-def create_argument_parser(tool_name):
+def create_argument_parser(tool_name, *, include_n_jobs=False):
     """Create the standard CLI shared by every annotation method."""
     parser = argparse.ArgumentParser(description=f"Run {tool_name} cell type annotation")
     parser.add_argument("--train_path", type=Path, required=True)
@@ -64,6 +66,16 @@ def create_argument_parser(tool_name):
     parser.add_argument(
         "--run_times", "--n_runs", dest="run_times", type=int, default=1
     )
+    if include_n_jobs:
+        parser.add_argument(
+            "--n_jobs",
+            type=int,
+            default=12,
+            help=(
+                "Maximum CPU workers/threads available to the method "
+                "(default: 12)"
+            ),
+        )
     parser.add_argument(
         "--test_batch_map",
         default=None,
@@ -290,6 +302,30 @@ def _file_identity(path):
     }
 
 
+@lru_cache(maxsize=64)
+def _file_sha256(path_string, size, mtime_ns):
+    """Hash a stable file snapshot once per process."""
+    del size, mtime_ns  # Included in the cache key to invalidate changed files.
+    digest = hashlib.sha256()
+    with open(path_string, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _directory_file_identity(path):
+    """Identify a directory member by portable content, not its location."""
+    resolved = Path(path).resolve()
+    stat = resolved.stat()
+    return {
+        "name": resolved.name,
+        "size": int(stat.st_size),
+        "sha256": _file_sha256(
+            str(resolved), int(stat.st_size), int(stat.st_mtime_ns)
+        ),
+    }
+
+
 def _json_signature_value(value):
     """Normalize argparse values into a stable JSON-compatible structure."""
     if isinstance(value, Path):
@@ -298,13 +334,12 @@ def _json_signature_value(value):
             return {"kind": "file", **_file_identity(resolved)}
         if resolved.is_dir():
             files = [
-                _file_identity(path)
+                _directory_file_identity(path)
                 for path in sorted(resolved.iterdir())
                 if path.is_file()
             ]
             return {
                 "kind": "directory",
-                "path": str(resolved),
                 "files": files,
             }
         return str(resolved)
@@ -413,17 +448,37 @@ def _resolve_test_specs(args):
 
 
 def _seed_for_run(args, tool_name, run_id):
-    """Persist one random run seed shared by all methods in this result root."""
-    del tool_name  # Seed schedules are method-independent for fair comparisons.
-    state_path = (
-        Path(args.save_path) / ".benchmark_state" / "seeds"
-        / f"run_{run_id}.json"
-    )
+    """Return the persisted shared seed, honoring explicit legacy overrides."""
     identity = {
         "run_id": run_id,
         "train_data": _file_identity(args.train_path),
         "train_celltype": args.train_celltype,
     }
+
+    # A tool-specific state is reserved for importing an already-completed run
+    # whose historical seed differs from the shared schedule.  New schedules
+    # continue to use the shared state below; this branch never creates an
+    # override implicitly.
+    if args.base_seed is None:
+        override_path = (
+            Path(args.save_path) / ".benchmark_state" / "seeds_by_tool"
+            / tool_name / f"run_{run_id}.json"
+        )
+        override = _read_json(override_path)
+        override_identity = {**identity, "tool": tool_name}
+        if override is not None and all(
+            override.get(key) == value
+            for key, value in override_identity.items()
+        ):
+            try:
+                return int(override["seed"])
+            except (KeyError, TypeError, ValueError):
+                pass
+
+    state_path = (
+        Path(args.save_path) / ".benchmark_state" / "seeds"
+        / f"run_{run_id}.json"
+    )
     previous = _read_json(state_path)
     if args.base_seed is None:
         if previous is not None and all(
@@ -612,6 +667,7 @@ def run_annotation_pipeline(
     tool_name, pred_key, train_fn, predict_fn, args,
     load_model_fn=None, model_is_complete_fn=None,
     expression_layers=None, share_train_expression=False,
+    keep_var_metadata=True,
 ):
     """Train once per seed, then predict one file or every file in a directory.
 
@@ -621,6 +677,8 @@ def run_annotation_pipeline(
     """
     if args.run_times < 1:
         raise ValueError("--n_runs/--run_times must be at least 1")
+    if hasattr(args, "n_jobs") and args.n_jobs < 1:
+        raise ValueError("--n_jobs must be at least 1")
 
     for name in ["train_celltype", "test_celltype", "train_batch", "test_batch"]:
         setattr(args, name, optional_key(getattr(args, name, None)))
@@ -736,6 +794,7 @@ def run_annotation_pipeline(
                     args.train_path,
                     obs_columns=(args.train_celltype, args.train_batch),
                     layers=expression_layers,
+                    keep_var_metadata=keep_var_metadata,
                 )
                 _validate_key(
                     train_raw, args.train_celltype, "Training", "cell-type"
@@ -815,6 +874,7 @@ def run_annotation_pipeline(
                 spec["path"],
                 obs_columns=(test_args.test_celltype, test_args.test_batch),
                 layers=expression_layers,
+                keep_var_metadata=keep_var_metadata,
             )
             _validate_key(
                 test_raw, test_args.test_celltype,

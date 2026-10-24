@@ -10,13 +10,16 @@ import scanpy as sc
 from scipy import sparse
 
 
-def load_dataset(path, *, obs_columns=None, layers=None):
+def load_dataset(
+    path, *, obs_columns=None, layers=None, keep_var_metadata=True,
+):
     """Load only the H5AD elements required by an annotation method.
 
     ``X`` and every cell/gene are always loaded without sampling.  Optional
     ``obs_columns`` and ``layers`` limit auxiliary data at the storage read,
     avoiding materializing ``raw``, embeddings, graphs, and unused expression
-    layers only to discard them later.
+    layers only to discard them later. ``keep_var_metadata=False`` retains the
+    exact gene index while omitting method-irrelevant ``var`` columns.
     """
     print(f"Loading data from {path}")
     requested_obs = None
@@ -41,6 +44,10 @@ def load_dataset(path, *, obs_columns=None, layers=None):
                 )
             obs = obs.loc[:, requested_obs].copy()
 
+        var = read_elem(store["var"])
+        if not keep_var_metadata:
+            var = var.iloc[:, 0:0].copy()
+
         layer_group = store.get("layers")
         available_layers = [] if layer_group is None else list(layer_group.keys())
         selected_layers = (
@@ -51,7 +58,7 @@ def load_dataset(path, *, obs_columns=None, layers=None):
         adata = AnnData(
             X=read_elem(store["X"]),
             obs=obs,
-            var=read_elem(store["var"]),
+            var=var,
             layers={
                 layer: read_elem(layer_group[layer])
                 for layer in selected_layers
