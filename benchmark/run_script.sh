@@ -99,7 +99,7 @@ echo "Train batch: $train_batch"
 echo "Test batch: $test_batch"
 echo "Test batch map: $test_batch_map"
 
-conda activate Celltypist
+conda activate sctools
 echo "Running Celltypist cell type annotation"
 python3 Celltypist/Celltypist.py \
     --train_path "$train_path" \

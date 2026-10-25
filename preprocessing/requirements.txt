@@ -1,27 +1,24 @@
-# Conda package specification for a fresh Linux environment.
-# conda create -n scLightGAT_data --file requirements.txt -c conda-forge -c bioconda
-# Do not append another Python version on the command line.
+# Conda MatchSpec file; do not install this file with pip.
+# The pinned numerical/I/O/R versions match the Linux x86-64 environment that
+# produced the released H5AD files. Use conda-forge before bioconda with strict
+# channel priority.
+#   conda create -n scLightGAT_data --override-channels \
+#     --strict-channel-priority -c conda-forge -c bioconda \
+#     --file requirements.txt
 python=3.10
 pip
-numpy
-pandas
-scipy
-anndata
-scanpy
-matplotlib
-python-igraph
-leidenalg
-scikit-misc
-requests
-beautifulsoup4
-h5py
-scikit-learn
+numpy=2.2.6
+pandas=2.3.3
+scipy=1.15.2
+anndata=0.11.4
+scanpy=1.11.5
+matplotlib-base=3.10.9
+requests=2.34.2
+beautifulsoup4=4.15.0
+h5py=3.16.0
+scikit-learn=1.7.2
 scrublet=0.2.3
-# Algorithms used by manual review and Scrublet.
-umap-learn
-scikit-image
-python-annoy
-r-base
-r-matrix
-r-seuratobject
-r-seurat
+r-base=4.5.2
+r-matrix=1.7_6
+r-seuratobject=5.4.0
+r-seurat=5.5.1

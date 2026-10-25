@@ -6,8 +6,9 @@ repeated runs, metrics, UMAP and result writing are handled by the project-level
 [`utils`](../utils) package shared with scLightGAT.
 
 The benchmark includes CellTypist, CHETAH, Seurat label transfer, SingleR,
-scANVI, scGraphformer and scGPT. Each tool uses a method-appropriate Conda
-environment to avoid Python/R and package-version conflicts.
+scANVI, scGraphformer and scGPT. CellTypist and scANVI share the existing
+`sctools` environment. The other methods keep dedicated environments because
+their verified Python, R/Bioconductor or CUDA stacks are incompatible.
 
 ## Common input
 
@@ -31,47 +32,143 @@ classification metrics, confusion matrices and ground-truth UMAPs are
 skipped. All included tools are supervised, so `--train_celltype None` is
 accepted as an explicit missing value but cannot be executed.
 
-## Common Python packages
+## Environment setup
 
-The existing methods and scANVI use the common Python evaluation/plotting
-stack below. scGraphformer uses its separately pinned CUDA-13 environment
-documented later because its verified stack uses NumPy 2:
+`run_script.sh` expects the environment names below. Only CellTypist and
+scANVI use the common `sctools` environment; every other row must be created
+separately.
+
+| Environment | Method(s) | Why it is separate |
+| --- | --- | --- |
+| `sctools` | CellTypist, scANVI | Shared Python environment |
+| `CHETAH` | CHETAH | R 4.3 / Bioconductor 3.18 stack |
+| `Seurat` | Seurat label transfer | Verified Seurat 5.3 / R 4.3 stack |
+| `SingleR` | SingleR | R 4.4 / Bioconductor 3.20 stack |
+| `scGPT` | scGPT | Requires `scvi-tools<1` and a platform-compatible PyTorch build |
+| `scGraphformer` | scGraphformer | Requires NumPy 2, PyG and pinned upstream source |
+
+### x86_64 Linux portability
+
+The environment commands below were clean-room tested on this NVIDIA GB10
+server (`aarch64`, CUDA 13), not on an x86_64 host. The benchmark wrappers,
+data formats and method settings are not tied to ARM, but the GB10 PyTorch
+wheel and its verification command are. For x86_64 Linux, keep the pinned
+Python/R packages below and make these platform substitutions.
+
+1. In the `sctools` recipe, do not install
+   `/pytorch_whl/*linux_aarch64.whl`. Install one official x86_64 PyTorch
+   build instead. These examples match the PyTorch 2.12 line used on GB10;
+   select exactly one:
+
+   ```bash
+   # x86_64 with an NVIDIA driver compatible with CUDA 13.0
+   python -m pip install "torch==2.12.0" "torchvision==0.27.0" \
+     --index-url https://download.pytorch.org/whl/cu130
+
+   # x86_64 CPU-only alternative
+   python -m pip install "torch==2.12.0" "torchvision==0.27.0" \
+     --index-url https://download.pytorch.org/whl/cpu
+   ```
+
+   Use the [official PyTorch installation
+   selector](https://pytorch.org/get-started/locally/) when the target driver
+   requires a different supported CUDA build. Install the remaining pinned
+   `sctools` packages only after Torch. The `scGPT` environment can then be
+   cloned from this x86_64 `sctools` environment exactly as described below.
+
+2. Replace the GB10-only CUDA-13/`sm_121` assertion with this portable
+   verification:
+
+   ```bash
+   python -c 'import platform, torch; print(platform.machine(), torch.__version__, torch.version.cuda); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")'
+   ```
+
+   For an intended NVIDIA-GPU run, additionally require
+   `torch.cuda.is_available()` to be `True`. The wrappers can select CPU
+   automatically, but full scLightGAT, scANVI, scGPT and scGraphformer runs on
+   the report-scale datasets are not expected to be practical on CPU.
+
+3. At the top of `run_script.sh`, replace the server-specific
+   `/Group16T/common/ccuc/miniconda3_gb10/etc/profile.d/conda.sh` with the
+   target machine's Conda initialization path. Replace the absolute dataset and
+   result paths in `run_cmd.sh`, or invoke `run_script.sh` directly with
+   paths that exist on the new host.
+
+4. scGraphformer additionally needs `torch_sparse` on x86_64. Its native
+   PyTorch `index_add_` fallback is currently restricted to
+   `aarch64`/`arm64`, so an x86_64 run stops if `torch_sparse` cannot be
+   imported. When following the scGraphformer recipe below, replace its Torch
+   installation line with exactly one of these matching blocks; do not run the
+   other Torch alternative afterward:
+
+   ```bash
+   # x86_64 with CUDA 13.0
+   python -m pip install --index-url https://download.pytorch.org/whl/cu130 \
+     "torch==2.11.0"
+   python -m pip install "torch_sparse==0.6.18" \
+     -f https://data.pyg.org/whl/torch-2.11.0+cu130.html
+
+   # x86_64 CPU-only alternative
+   python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+     "torch==2.11.0"
+   python -m pip install "torch_sparse==0.6.18" \
+     -f https://data.pyg.org/whl/torch-2.11.0+cpu.html
+   ```
+
+   When choosing another Torch/CUDA combination, use a pair listed in the
+   [official PyG installation
+   matrix](https://pytorch-geometric.readthedocs.io/en/stable/install/installation.html);
+   do not let pip compile or silently substitute an unmatched `torch_sparse`
+   build.
+
+These substitutions do not change the datasets, method settings or output
+schema. A fresh run on x86_64 should be treated as a method-level reproduction,
+not a bit-for-bit continuation of an ARM run: CPU/GPU, BLAS, Torch and CUDA
+kernel differences can produce small floating-point differences. In
+particular, do not resume an incomplete scGPT training checkpoint across
+architectures; start that run again on the target machine.
+
+### Common `sctools` environment: CellTypist and scANVI
+
+Create the shared environment once from scratch. On this GB10 server, the
+CUDA-13 PyTorch wheel is supplied by the NVIDIA system image under
+`/pytorch_whl`; using that wheel is required because it contains `sm_121`
+support for this GPU:
 
 ```bash
-pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn
+conda create -n sctools -c conda-forge --strict-channel-priority \
+  python=3.10.20 pip=26.2.1 -y
+conda activate sctools
+python -m pip install \
+  /pytorch_whl/torch-2.12.0a0+git29094e4-cp310-cp310-linux_aarch64.whl
+python -m pip install \
+  "numpy==1.26.4" "pandas==2.3.3" "scipy==1.11.4" \
+  "scikit-learn==1.7.2" "h5py==3.16.0" \
+  "anndata==0.11.4" "scanpy==1.9.8" \
+  "matplotlib==3.10.9" "seaborn==0.13.2" \
+  "umap-learn==0.5.12" \
+  "celltypist==1.7.1" "scvi-tools==1.3.3"
+python -m pip install \
+  "jax==0.6.1" "jaxlib==0.6.1" "lightning==2.6.4" \
+  "pytorch-lightning==2.6.1" "torchmetrics==1.2.1" \
+  "mudata==0.3.8" "numba==0.65.1" "llvmlite==0.47.0" \
+  "statsmodels==0.14.6"
+# Also repairs an incomplete charset-normalizer installation if these commands
+# are rerun in an existing environment.
+python -m pip install --force-reinstall "charset-normalizer==3.4.4"
 ```
 
-### Verified tool versions
-
-The current benchmark implementation was reviewed against these installed
-versions. This records the verified environment only; it does not install,
-upgrade or lock packages:
-
-| Package | Verified version |
-| --- | --- |
-| CellTypist | 1.7.1 |
-| scikit-learn | 1.7.2 |
-| Seurat | 5.3.0 |
-| SeuratObject | 5.2.0 |
-| CHETAH | 1.18.0 |
-| SingleR | 2.8.0 |
-| scGPT | 0.2.4 |
-| scvi-tools (scANVI) | 1.3.3 |
-| PyTorch (scANVI environment) | 2.12.0a0+git29094e4, CUDA 13.0 |
-| scGraphformer source reference | commit `75c76fc6b66195297a764d6e4569b3c01e084538` |
-| PyTorch (scGraphformer environment) | 2.11.0+cu130 |
-
-## CellTypist
-
-Create a standalone environment:
+The wheel's verified SHA-256 is
+`e5f42a7528d5321d516b6d38a0c82667410940643ba9039a9bb52119f264b549`.
+Do not let a generic pip command replace it. JAX/JAXLIB 0.6.1 are pinned
+because 0.6.2 requires SciPy 1.12 or newer, while the verified scANVI stack
+uses SciPy 1.11.4. Verify the complete environment and both adapters with:
 
 ```bash
-conda create -n Celltypist -c conda-forge python=3.10 pip -y
-conda activate Celltypist
-pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn
-pip install celltypist==1.7.1
+python -m pip check
+python -c 'import celltypist, scvi, torch; print(celltypist.__version__, scvi.__version__, torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); assert str(torch.version.cuda).startswith("13."); assert "sm_121" in torch.cuda.get_arch_list()'
+python Celltypist/Celltypist.py --help
+python scANVI/scANVI.py --help
 ```
 
 ## CHETAH
@@ -84,21 +181,25 @@ Conda/Bioconda in one transaction:
 conda create -n CHETAH \
   --copy --override-channels --strict-channel-priority \
   -c conda-forge -c bioconda \
-  python=3.10 pip \
-  r-base=4.3 r-argparse r-matrix \
+  python=3.10.22 pip=26.2.1 \
+  r-base=4.3.3 r-argparse=2.2.5 r-matrix=1.6_5 \
   r-data.table r-htmlwidgets r-plotly r-shiny \
   bioconductor-data-packages=20260207=hdfd78af_0 \
   bioconductor-genomeinfodbdata=1.2.11=r43hdfd78af_0 \
-  bioconductor-chetah=1.18 \
-  bioconductor-singlecellexperiment=1.24 \
-  bioconductor-summarizedexperiment=1.32 \
-  bioconductor-genomicranges=1.54 \
-  bioconductor-delayedarray=0.28 \
+  bioconductor-chetah=1.18.0 \
+  bioconductor-s4vectors=0.40.2 \
+  bioconductor-singlecellexperiment=1.24.0 \
+  bioconductor-summarizedexperiment=1.32.0 \
+  bioconductor-genomicranges=1.54.1 \
+  bioconductor-delayedarray=0.28.0 \
   -y
 
 conda activate CHETAH
-python -m pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn
+python -m pip install \
+  "numpy==1.26.4" "pandas==2.3.3" "scipy==1.15.3" \
+  "scikit-learn==1.7.2" "h5py==3.16.0" \
+  "anndata==0.11.4" "scanpy==1.11.5" \
+  "matplotlib==3.10.9" "seaborn==0.13.2" "umap-learn==0.5.12"
 ```
 
 ## Seurat
@@ -107,12 +208,17 @@ Use Conda's compiled R packages so Seurat does not share libraries with the
 Bioconductor methods:
 
 ```bash
-conda create -n Seurat -c conda-forge \
-  python=3.10 pip r-base=4.3 r-argparse r-matrix \
-  r-seurat r-seuratobject -y
+conda create -n Seurat -c conda-forge --strict-channel-priority \
+  python=3.10.22 pip=26.2.1 \
+  r-base=4.3.3 r-argparse=2.2.5 r-matrix=1.6_5 \
+  r-seurat=5.3.0 r-seuratobject=5.2.0 \
+  -y
 conda activate Seurat
-pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn
+python -m pip install \
+  "numpy==1.26.4" "pandas==2.3.3" "scipy==1.15.3" \
+  "scikit-learn==1.7.2" "h5py==3.16.0" \
+  "anndata==0.11.4" "scanpy==1.11.5" \
+  "matplotlib==3.10.9" "seaborn==0.13.2" "umap-learn==0.5.12"
 ```
 
 ## SingleR
@@ -121,31 +227,36 @@ pip install "numpy<2" pandas scipy scikit-learn \
 conda create -n SingleR \
   -c conda-forge -c bioconda \
   --strict-channel-priority \
-  python=3.10 \
-  r-base=4.4 \
-  r-argparse \
-  r-matrix \
+  python=3.10.22 pip=26.2.1 \
+  r-base=4.4.3 \
+  r-argparse=2.3.1 \
+  r-matrix=1.7_6 \
   r-biocmanager \
   bioconductor-singler=2.8.0 \
   bioconductor-singlecellexperiment=1.28.0 \
+  bioconductor-summarizedexperiment=1.36.0 \
+  bioconductor-s4vectors=0.44.0 \
+  bioconductor-biocparallel=1.40.0 \
   bioconductor-scran=1.34.0 \
   -y
 conda activate SingleR
-pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn
+python -m pip install \
+  "numpy==1.26.4" "pandas==2.3.3" "scipy==1.15.3" \
+  "scikit-learn==1.7.2" "h5py==3.16.0" \
+  "anndata==0.11.4" "scanpy==1.11.5" \
+  "matplotlib==3.10.9" "seaborn==0.13.2" "umap-learn==0.5.12"
 ```
 
 ## scGPT
 
-On GB10, keep the platform/vendor CUDA 13 AArch64 PyTorch build that supports
-the GPU's `sm_121` architecture. Do not replace it with the older CUDA 12.1
-(`cu121`) wheels. Follow the current NVIDIA GB10 image guidance or PyTorch
-platform guidance for the base Torch installation; an exact nightly wheel is
-intentionally not pinned here because those builds expire and change.
+On this GB10 workstation, create `scGPT` by cloning `sctools`. This preserves
+the verified platform/vendor CUDA-13 AArch64 PyTorch build supporting `sm_121`.
+Do not replace it with an older CUDA 12.1 (`cu121`) wheel.
 
 torchtext ABI compatibility is not a prerequisite for this benchmark. The
 preserved scGPT code installs a narrow pure-Python `Vocab` compatibility shim
-when torchtext's compiled extension cannot load with the platform Torch build.
+when torchtext is absent or its compiled extension cannot load with the
+platform Torch build.
 Flash Attention is deliberately omitted because available external packages do
 not implement the legacy API expected by scGPT 0.2.4 on this stack.
 
@@ -166,12 +277,18 @@ flags are recorded in the scGPT model identity. No separate FlashAttention
 package is required.
 
 ```bash
-conda create -n scGPT -c conda-forge python=3.10 pip -y
+conda create -n scGPT --clone sctools -y
 conda activate scGPT
-# Install or retain the GB10 vendor-supported CUDA 13 AArch64 PyTorch build.
-python -m pip install "numpy<2" pandas scipy scikit-learn \
-  anndata scanpy matplotlib seaborn umap-learn \
-  scgpt==0.2.4 gdown ipython
+# Install the verified legacy stack without installing torchtext, whose package
+# metadata would otherwise replace the GB10 Torch build with torch 2.0.1.
+python -m pip install \
+  "scipy==1.15.3" "anndata==0.11.4" "scanpy==1.11.5" \
+  "scvi-tools==0.20.3" "cell-gears==0.0.2" \
+  "datasets==2.21.0" "leidenalg==0.12.0" "numba==0.67.0" \
+  "orbax==0.1.7" "scib==1.1.7" "scikit-misc==0.5.2" \
+  "gdown==6.1.0"
+python -m pip install --no-deps "scgpt==0.2.4"
+python -m pip install --force-reinstall "charset-normalizer==3.4.4"
 python -c 'import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_arch_list()); assert torch.cuda.is_available(); assert str(torch.version.cuda).startswith("13."); assert "sm_121" in torch.cuda.get_arch_list()'
 PYTHONPATH=. python -c 'import sys; sys.path.insert(0, "scGPT"); import model_impl; print("scGPT compatibility imports OK")'
 ```
@@ -231,15 +348,6 @@ conda activate sctools
 python -c 'import scvi, torch; print(scvi.__version__, torch.__version__, torch.version.cuda)'
 ```
 
-If `sctools` must be rebuilt on this GB10 host, first retain or install a
-CUDA-13 PyTorch build supporting `sm_121` as described for scGPT, then install:
-
-```bash
-python -m pip install "numpy<2" pandas scipy scikit-learn \
-  anndata==0.11.4 scanpy==1.9.8 matplotlib seaborn umap-learn \
-  scvi-tools==1.3.3
-```
-
 ## scGraphformer
 
 Create the standalone environment with:
@@ -248,7 +356,7 @@ Create the standalone environment with:
 conda create --name scGraphformer --channel conda-forge \
   python=3.10 git pip numpy=2.0.2 pandas=2.2.3 scipy=1.14.1 \
   scikit-learn=1.6.0 h5py=3.12.1 matplotlib=3.9.3 \
-  seaborn=0.13.2 'psutil>=6'
+  seaborn=0.13.2 'psutil>=6' -y
 conda activate scGraphformer
 python -m pip install --index-url https://download.pytorch.org/whl/cu130 \
   'torch==2.11.0+cu130'
@@ -260,10 +368,6 @@ git clone https://github.com/xyfan22/scGraphformer.git \
 git -C "$CONDA_PREFIX/src/scGraphformer" checkout --detach \
   75c76fc6b66195297a764d6e4569b3c01e084538
 ```
-
-On this workstation, a faster equivalent starting point is
-`conda create --name scGraphformer --clone scLightGAT`, followed by the pinned
-PyTorch, PyG and official-source installation commands above.
 
 The wrapper loads and instantiates the model class directly from that pinned
 official checkout; it does not contain a second implementation of the model.
