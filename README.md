@@ -20,7 +20,7 @@ The fitted feature schemas and model components are reused for independent query
 
 - A labelled reference dataset (`--train_path`) and one or more query datasets (`--test_path`) in AnnData (`.h5ad`) format. `--test_path` may point to a single file or a directory of `.h5ad` files.
 - Quality-controlled, library-size-normalized, and `log1p`-transformed expression in `adata.X` and `adata.layers["log_transformed"]`. The reference dataset must also contain raw counts in `adata.layers["counts"]`.
-- A reference cell-type column in `adata.obs`, specified with `--train_celltype`. Query labels are optional and are used only for evaluation.
+- A reference cell-type column in `adata.obs`, specified with `--train_celltype`, containing at least two classes with at least two cells per class. Query labels are optional and are used only for evaluation.
 - Batch columns are optional and can be specified with `--train_batch` and `--test_batch`; use `None` when batch information is unavailable.
 
 ## Installation
@@ -38,13 +38,122 @@ python -m pip check
 
 ## Data Availability
 
-### Option 1: Manaul Download
+The datasets used to train and evaluate scLightGAT are summarized below. The five training datasets were integrated into a 236,975 cells reference, while the testing datasets were retained as independent query datasets. Cell counts refer to the cells retained in the final model-ready datasets.
 
+<table>
+<thead>
+  <tr>
+    <th>Dataset Role</th>
+    <th>Biological Context</th>
+    <th>Source / Accession</th>
+    <th>Cells in Dataset</th>
+  </tr>
+</thead>
+<tbody>
+  <tr>
+    <td rowspan="5">Training Datasets</td>
+    <td>NSCLC</td>
+    <td>GSE131907</td>
+    <td>73,593</td>
+  </tr>
 
+  <tr>
+      <td>Breast cancer</td>
+      <td>GSE176078</td>
+      <td>83,472</td>
+  </tr>
 
-### Option 2: Proprocessing in local
+  <tr>
+      <td>Hepatocellular carcinoma</td>
+      <td>GSE140228</td>
+      <td>17,182</td>
+  </tr>
 
+  <tr>
+      <td>Colorectal cancer</td>
+      <td>GSE132465</td>
+      <td>33,092</td>
+  </tr>
 
+  <tr>
+      <td>Prostate Cancer</td>
+      <td>GSE141445</td>
+      <td>29,636</td>
+  </tr>
+
+  <tr>
+    <td rowspan="7">Testing Datasets</td>
+    <td>NSCLC</td>
+    <td>GSE153935</td>
+    <td>4,844</td>
+  </tr>
+
+  <tr>
+    <td>Melanoma</td>
+    <td>GSE115978</td>
+    <td>4,634</td>
+  </tr>
+
+  <tr>
+    <td>Melanoma immune cells</td>
+    <td>GSE123139</td>
+    <td>7,903</td>
+  </tr>
+
+  <tr>
+    <td>Colorectal cancer</td>
+    <td>GSE166555</td>
+    <td>35,382</td>
+  </tr>
+
+  <tr>
+    <td>Sorted PBMC</td>
+    <td>Zheng</td>
+    <td>17,385</td>
+  </tr>
+
+  <tr>
+    <td>Pulmonary fibrosis lung</td>
+    <td>GSE135893</td>
+    <td>113,002</td>
+  </tr>
+
+  <tr>
+    <td>Tabula Sapiens</td>
+    <td>GSE201333</td>
+    <td>49,357</td>
+  </tr>
+
+  <tr>
+    <td>CAF Datasets</td>
+    <td>Pan-cancer CAF atlas</td>
+    <td>GSE210347</td>
+    <td>73,402<br>(51,097 reference / 22,305 query)</td>
+  </tr>
+  </tbody>
+</table>
+
+The subtype benchmarks were derived from the integrated reference using predefined donor level. The CAF benchmark was derived from GSE210347 using a fixed tissue level. Within each task, the reference and query subsets are mutually exclusive.
+
+### Option 1: Download the processed datasets
+
+The processed scLightGAT datasets are available on [Hugging Face](https://huggingface.co/datasets/Alfiechuang/scLightGAT).
+
+After installing `huggingface_hub` (`python -m pip install huggingface_hub`), the complete processed dataset repository can be downloaded with Python:
+
+```python
+from huggingface_hub import snapshot_download
+
+data_dir = snapshot_download(
+    repo_id="Alfiechuang/scLightGAT",
+    repo_type="dataset",
+    local_dir="scLightGAT_data",
+)
+```
+
+### Option 2: Rebuild the datasets locally
+
+The preprocessing pipeline downloads the publicly available source data, performs quality control and cell-type label harmonization, and generates the `.h5ad` files used in the experiments. See [`preprocessing/README.md`](preprocessing/README.md) for setup and execution instructions.
 
 ## Usage
 
@@ -61,28 +170,41 @@ brackets (`<...>`) with the corresponding value for your dataset:
 
 ```bash
 bash run_script.sh \
-  --dataset_path "<dataset_path>" \
-  --save_path "<result_path>" \
-  --batch_key "<obs_batch_key>" \
-  --celltype_key "<obs_celltype_key>" \
-  --n_runs "<repeat_time>"
+  --train_path "<reference_h5ad>" \
+  --test_path "<query_h5ad_or_directory>" \
+  --save_path "<output_directory>" \
+  --train_celltype "<reference_celltype_key>" \
+  --test_celltype "<query_celltype_key_or_None>" \
+  --train_batch "<reference_batch_key_or_None>" \
+  --n_runs "<number_of_runs>"
 ```
 
-`--dataset_path` and `--save_path` are required. `--batch_key`,
-`--celltype_key`, and `--n_runs` are optional and default to `batch`,
-`celltype`, and `5`, respectively. The batch and cell-type keys must
-correspond to columns in `adata.obs`.
+Use `--test_batch` to specify the default batch column for query datasets:
+
+```bash
+--test_batch "<query_batch_key>" \
+```
+
+When `--test_path` is a directory, use `--test_batch_map` to override the default for individual query files:
+
+```bash
+--test_batch_map "dataset_a=batch_key,dataset_b=sample_key,dataset_c=None" \
+```
+
+Each mapping key must match an `.h5ad` file name without its extension. Files omitted from the map use the value of `--test_batch`; omit both options when query batch information is unavailable.
+
+`--train_path`, `--test_path`, and `--save_path` are required. `--test_path` may point to one `.h5ad` file or a directory of `.h5ad` files; in the latter case, the reference is trained once per run and applied to every query file. The optional defaults are `--train_celltype Celltype_training`, `--test_celltype Celltype_training`, `--train_batch Data_source`, no query batch column, and `--n_runs 1`. Set `--test_celltype None` for an unlabelled query; predictions are still generated, but evaluation metrics are skipped.
 
 ## Reproducing the Experiments
 
 ### Tested configuration
 
-- OS: Ubuntu 22.04.5 LTS
-- CPU: Intel Xeon Gold 6240L
-- GPU: NVIDIA RTX A5000
-- NVIDIA driver: 535.288.01
+- OS: NVIDIA DGX OS
+- CPU: Cortex-X925 / Cortex-A725
+- GPU: NVIDIA GB10
+- NVIDIA driver: 580.126.09
 - Python: 3.10.20
-- PyTorch: 2.2.1+cu121
+- PyTorch: 2.11.0+cu130
 
 ### Shared dataset parameters
 
@@ -182,12 +304,6 @@ The runner automatically generates all six ablation figures after finishing each
 ## Citation
 
 Citation information for scSCI will be added once the associated manuscript is published or a DOI becomes available.
-
-## References
-
-[1] Malte D. Luecken, M. Büttner, K. Chaichoompu, A. Danese, M. Interlandi, M. F. Mueller, D. C. Strobl, L. Zappia, M. Dugas, M. Colomé-Tatché, and Fabian J. Theis. 2022. Benchmarking atlas-level data integration in single-cell genomics. Nature Methods 19, 1 (Jan. 2022), 41-50. https://doi.org/10.1038/s41592-021-01336-8.
-
-[2] Bowen Zhao, Kailu Song, Dong-Qing Wei, Yi Xiong, and Jun Ding. 2025. scCobra allows contrastive cell embedding learning with domain adaptation for single cell data integration and harmonization. Communications Biology 8, 1 (Feb. 2025). https://doi.org/10.1038/s42003-025-07692-x.
 
 <!-- # scLightGAT: A LightGBM-based Framework Integrating C-DVAE and GATs for Robust Single-cell RNA-seq Cell Type Annotation
 

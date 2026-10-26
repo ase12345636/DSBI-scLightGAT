@@ -1,11 +1,27 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
 
-source /Group16T/common/ccuc/miniconda3_gb10/etc/profile.d/conda.sh
-conda activate scLightGAT
+if [[ -z "${CONDA_BASE:-}" ]]; then
+    if ! command -v conda >/dev/null 2>&1; then
+        echo "Error: conda is not available in PATH." >&2
+        exit 1
+    fi
+    CONDA_BASE="$(conda info --base)"
+fi
+
+CONDA_SH="$CONDA_BASE/etc/profile.d/conda.sh"
+
+if [[ ! -f "$CONDA_SH" ]]; then
+    echo "Error: Conda initialization script not found: $CONDA_SH" >&2
+    exit 1
+fi
+
+source "$CONDA_SH"
+conda activate "${SCLIGHTGAT_CONDA_ENV:-scLightGAT}"
+
+cd "$SCRIPT_DIR"
 
 cache_dir="$SCRIPT_DIR/.cache"
 mkdir -p "$cache_dir/matplotlib" "$cache_dir/numba"

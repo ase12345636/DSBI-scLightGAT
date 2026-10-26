@@ -6,3 +6,5 @@ scLightGAT_data*/
 plots/
 .DS_Store
 benchmark/scGPT/models/scGPT_human/best_model.pt
+temp/
+*_cmd.sh

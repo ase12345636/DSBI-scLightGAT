@@ -90,9 +90,8 @@ Python/R packages below and make these platform substitutions.
 
 3. At the top of `run_script.sh`, replace the server-specific
    `/Group16T/common/ccuc/miniconda3_gb10/etc/profile.d/conda.sh` with the
-   target machine's Conda initialization path. Replace the absolute dataset and
-   result paths in `run_cmd.sh`, or invoke `run_script.sh` directly with
-   paths that exist on the new host.
+   target machine's Conda initialization path, then invoke `run_script.sh`
+   directly with dataset and result paths that exist on the new host.
 
 4. scGraphformer additionally needs `torch_sparse` on x86_64. Its native
    PyTorch `index_add_` fallback is currently restricted to
@@ -460,10 +459,9 @@ fine-tuning was interrupted. Results created before these markers existed are
 intentionally recomputed once, because the pipeline cannot prove that they came
 from the same protocol.
 
-The repository's `run_cmd.sh` runs the broad test directory, keeps CAF
-separate because it uses a different training reference, and loops over the
-five Subtype groups. The unified `run_script.sh` includes all seven benchmark
-methods, including scANVI and scGraphformer.
+Invoke the unified `run_script.sh` separately with the corresponding
+reference, query, and result paths for the broad, CAF, and Subtype tasks. It
+includes all seven benchmark methods, including scANVI and scGraphformer.
 
 For a dataset without query batch or ground-truth metadata:
 
