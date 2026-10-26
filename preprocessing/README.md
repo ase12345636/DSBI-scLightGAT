@@ -1,12 +1,130 @@
 # scLightGAT data Preprocessing
 
-## Label Source and Mapping
+<table>
+<thead>
+  <tr>
+    <th>Dataset Role</th>
+    <th>Biological Context</th>
+    <th>Source / Accession</th>
+    <th>Cells in Dataset</th>
+    <th>Subtype</th>
+  </tr>
+</thead>
+<tbody>
+  <tr>
+    <td rowspan="5">Training Datasets</td>
+    <td>NSCLC</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131907">GSE131907</a></td>
+    <td>73,593</td>
+    <td>Follicular B cells<br>Germinal B cells<br>MALT B cells<br>CD4+Tfh/Th cells<br>CD4+exhausted T cells<br>CD4+naive T cells<br>CD4+reg T cells<br>CD8+Naive T cells<br>CD8+exhausted T cells<br>DC<br>cDC<br>Plasma cells</td>
+  </tr>
 
-## Installtaion
+  <tr>
+      <td>Breast cancer</td>
+      <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE176078">GSE176078</a></td>
+      <td>83,472</td>
+      <td>Memory B cells<br>Naive B cells<br>CD4+Tfh/Th cells<br>CD4+memory T cells<br>CD4+naive T cells<br>CD4+reg T cells<br>CD8+exhausted T cells<br>CD8+memory T cells<br>DC<br>cDC<br>Plasmablasts</td>
+  </tr>
+
+  <tr>
+      <td>Hepatocellular carcinoma</td>
+      <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE140228">GSE140228</a></td>
+      <td>17,182</td>
+      <td>CD4+Tfh/Th cells<br>CD4+memory T cells<br>CD4+naive T cells<br>CD4+reg T cells<br>CD8+MAIT T cells<br>CD8+Naive T cells<br>CD8+exhausted T cells<br>CD8+memory T cells<br>DC<br>cDC<br>Plasma cells</td>
+  </tr>
+
+  <tr>
+      <td>Colorectal cancer</td>
+      <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE132465">GSE132465</a></td>
+      <td>33,092</td>
+      <td>CD4+Tfh/Th cells<br>cDC<br>IgA+ Plasma<br>IgG+ Plasma</td>
+  </tr>
+
+  <tr>
+      <td>Prostate Cancer</td>
+      <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE141445">GSE141445</a></td>
+      <td>29,636</td>
+      <td></td>
+  </tr>
+
+  <tr>
+    <td rowspan="7">Testing Datasets</td>
+    <td>NSCLC</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE153935">GSE153935</a></td>
+    <td>4,844</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Melanoma</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE115978">GSE115978</a></td>
+    <td>4,634</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Melanoma immune cells</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE123139">GSE123139</a></td>
+    <td>7,903</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Colorectal cancer</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE166555">GSE166555</a></td>
+    <td>35,382</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Sorted PBMC</td>
+    <td><a href="https://doi.org/10.5281/zenodo.3357167">Zheng</a></td>
+    <td>17,385</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Pulmonary fibrosis lung</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135893">GSE135893</a></td>
+    <td>113,002</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>Tabula Sapiens</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE201333">GSE201333</a><br><a href="https://doi.org/10.6084/m9.figshare.25335436.v2">Figshare v2</a></td>
+    <td>49,357</td>
+    <td></td>
+  </tr>
+
+  <tr>
+    <td>CAF Datasets</td>
+    <td>Pan-cancer CAF atlas</td>
+    <td><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE210347">GSE210347</a></td>
+    <td>73,402</td>
+    <td></td>
+  </tr>
+  </tbody>
+</table>
+
+## Label Mapping
+
+## Installation
+
+scLightGAT Data Proprecessing is implemented in Python. Clone the repository and create the Conda environment as follows:
+
+```bash
+git clone https://github.com/chenh2lab/scLightGAT
+cd scLightGAT/preprocessing
+conda create --name scLightGAT_data python=3.10
+conda activate scLightGAT_data
+python -m pip install -r requirements.txt
+python -m pip check
+```
 
 ## Usage
 
-
+<!-- 
 
 # scLightGAT 公開來源資料重建與標註說明
 
@@ -382,4 +500,4 @@ exclusion reason，不應在方法說明中合併稱為「低品質 cell」。
 > platforms, and subtype cells from the same donor never crossed train and test.
 
 引用本段時仍應依實際分析對象一併引用上方對應的原始 dataset paper、資料庫 accession
-以及原始資料 references。
+以及原始資料 references。 -->
