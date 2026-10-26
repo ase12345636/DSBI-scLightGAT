@@ -133,7 +133,7 @@ The datasets used to train and evaluate scLightGAT are summarized below. The fiv
   </tbody>
 </table>
 
-The subtype benchmarks were derived from the integrated reference using predefined donor level. The CAF benchmark was derived from GSE210347 using a fixed tissue level. Within each task, the reference and query subsets are mutually exclusive.
+The subtype benchmarks were derived from the integrated reference using predefined donor-level splits. The CAF benchmark was derived from GSE210347 using a predefined tissue-level split. Within each task, the reference and query subsets are mutually exclusive.
 
 ### Option 1: Download the processed datasets
 
@@ -208,251 +208,140 @@ Each mapping key must match an `.h5ad` file name without its extension. Files om
 
 ### Shared dataset parameters
 
-The scRNA-seq experiments use the following shared dataset parameters. Use these values wherever the commands below contain the corresponding placeholders:
+The experiments use the following shared metadata keys. Use these values wherever the commands below contain the corresponding placeholders:
 
-| `<dataset_name>` | `<obs_batch_key>` | `<obs_celltype_key>` |
-| --- | --- | --- |
-| `immune` | `batch` | `final_annotation` |
-| `lung` | `batch` | `cell_type` |
-| `pancreas` | `tech` | `celltype` |
+| `<task_name>` | `<train_celltype_key>` | `<test_celltype_key>` | `<train_batch_key>` | `<test_batch_key>` |
+| --- | --- | --- | --- | --- |
+| `broad` | `Celltype_training` | `Celltype_training` | `Data_source` | `None` |
+| `CAF` | `Celltype_training` | `Celltype_training` | `SampleID` | `None` |
+| `subtype` | `Celltype_subtraining` | `Celltype_subtraining` | `Data_source` | `Data_source` |
+
+For the broad benchmark, use `--test_batch_map "GSE115978=samples,GSE123139=Sample.Short.Name,GSE153935=orig.ident,GSE166555=sample_id,Zhengsorted=None,lung_full=None,sapiens_full=donor"`. Use an empty value for `<test_batch_map>` in the CAF and subtype benchmarks.
 
 ### Experiment list
 
 | Experiment | Description |
 | --- | --- |
-| [Main experiment](#main-experiment) | Compares the batch-effect correction performance of scSCI with that of existing supervised and unsupervised methods. |
-| [Ablation study](#ablation-study) | Evaluates how within-batch positive weighting, network depth, and activation functions affect scSCI performance. |
+| [Main experiment](#main-experiment) | Compares the annotation performance and runtime of scLightGAT with existing cell-type annotation methods across broad, CAF, and subtype benchmarks. |
+| [Ablation study](#ablation-study) | Evaluates the contributions of C-DVAE and GAT by comparing the full model with No C-DVAE, No GAT, and LightGBM-only variants. |
 
 #### Main experiment
 
-The main experiment uses the three scRNA-seq datasets from the scIB benchmark described in the Data Availability section. We compare ground-truth-guided scSCI with five unsupervised methods (Harmony, Scanorama, scVI, Seurat, and scCobra), two label-guided methods (scANVI and SMNN), and scDML as a separate cluster-number-guided comparison method. Raw is included as an uncorrected baseline. For scDML, the ground-truth number of cell types is supplied as the expected number of clusters. The comparison figures also include scSCI guided by the provided manual annotations.
+The main experiment uses the integrated reference and the independent query datasets described in the Data Availability section. We compare scLightGAT with seven reference-based cell-type annotation methods: CellTypist, CHETAH, Seurat, SingleR, scANVI, scGraphformer, and scGPT. The comparison covers seven broad cell-type datasets, one CAF task, and five subtype tasks.
 
-Before running the experiment, create the method-specific Conda environments by following the instructions in [`benchmark/README.md`](benchmark/README.md). Run scSCI and the comparison methods for each dataset, saving their outputs under the same dataset-specific result directory.
+Before running the experiment, create the method-specific Conda environments by following the instructions in [`benchmark/README.md`](benchmark/README.md). Run scLightGAT first and then the comparison methods for each task, saving their outputs under the same task-specific result directory so that they reuse the same five-run seed schedule.
 
-Run scSCI:
+Run scLightGAT:
 
 ```bash
 bash run_script.sh \
-  --dataset_path "<dataset_path>" \
-  --save_path "<result_path>/<dataset_name>" \
-  --batch_key "<obs_batch_key>" \
-  --celltype_key "<obs_celltype_key>" \
-  --n_runs "<repeat_time>"
+  --train_path "<train_path>" \
+  --test_path "<test_path>" \
+  --save_path "<result_path>" \
+  --train_celltype "<train_celltype_key>" \
+  --test_celltype "<test_celltype_key>" \
+  --train_batch "<train_batch_key>" \
+  --test_batch "<test_batch_key>" \
+  --test_batch_map "<test_batch_map>" \
+  --n_runs 5
 ```
 
-Run the comparison methods:
+Run the comparison methods with the same values:
 
 ```bash
 bash benchmark/run_script.sh \
-  --dataset_path "<dataset_path>" \
-  --save_path "<result_path>/<dataset_name>" \
-  --batch_key "<obs_batch_key>" \
-  --celltype_key "<obs_celltype_key>" \
-  --n_runs "<repeat_time>"
+  --train_path "<train_path>" \
+  --test_path "<test_path>" \
+  --save_path "<result_path>" \
+  --train_celltype "<train_celltype_key>" \
+  --test_celltype "<test_celltype_key>" \
+  --train_batch "<train_batch_key>" \
+  --test_batch "<test_batch_key>" \
+  --test_batch_map "<test_batch_map>" \
+  --n_runs 5
 ```
 
-Repeat both commands for the `immune`, `lung`, and `pancreas` datasets. These dataset names must be used because the plotting scripts use them to locate the corresponding results.
+Repeat both commands with the following paths:
 
-To reproduce the complete comparison figures, also run [Manual annotation Option 1](#option-1-use-the-provided-manual-annotations) for all three datasets, using the same dataset-specific result directories.
+- **Broad:** `<data_root>/Integrated_training/train.h5ad` to `<data_root>/Independent_testing`, saved to `<result_root>`.
+- **CAF:** `<data_root>/caf.data/caf_train.h5ad` to `<data_root>/caf.data/caf_test.h5ad`, saved to `<result_root>/CAF`.
+- **Subtype:** `<data_root>/Subtype/<broad_type>_train.h5ad` to `<data_root>/Subtype/<broad_type>_test.h5ad`, saved to `<result_root>/Subtype/<broad_type>`, for `B_cell`, `CD4_T_cell`, `CD8_T_cell`, `DC`, and `Plasma_cell`.
 
-The plotting scripts identify the ground-truth-guided scSCI results as `GT`. After all scSCI runs for a dataset have finished, rename its result directory:
+All methods receive the same reference and query files. Query cell-type labels are passed only to the shared evaluation pipeline and are not available during model training or prediction.
 
-```bash
-mv -T \
-  "<result_path>/<dataset_name>/scSCI" \
-  "<result_path>/<dataset_name>/GT"
-```
-
-After scSCI and all comparison methods have finished, activate the `scSCI` environment and generate the metric bar charts and UMAP panels. For each method, the UMAP script automatically selects the run with the highest NMI score.
+After scLightGAT and all comparison methods have finished, activate the `scLightGAT` environment and generate the metric, runtime, and UMAP figures. For each method, the UMAP script selects the completed run with the highest balanced accuracy.
 
 ```bash
-conda activate scSCI
+conda activate scLightGAT
 
 python3 bar_chart.py \
-  --result-dir "<result_path>" \
-  --output-dir "<plot_root>/bar_chart"
+  --results_dir "<result_root>" \
+  --sclightgat_results_dir "<result_root>" \
+  --out_dir "<plot_root>/bar_chart"
 
 python3 plot_umap.py \
-  --result-dir "<result_path>" \
-  --output-dir "<plot_root>/umap"
+  --test_path \
+    "<data_root>/Independent_testing" \
+    "<data_root>/caf.data/caf_test.h5ad" \
+  --results_dir "<result_root>" \
+  --sclightgat_results_dir "<result_root>" \
+  --subtype_results_dir "<result_root>/Subtype" \
+  --subtype_sclightgat_results_dir "<result_root>/Subtype" \
+  --subtype_test_dir "<data_root>/Subtype" \
+  --out_dir "<plot_root>/umap" \
+  --subtype_out_dir "<plot_root>/umap/Subtype"
 ```
 
 #### Ablation study
 
-This experiment evaluates three design choices in scSCI while keeping the remaining preprocessing, training, and evaluation settings unchanged:
+This experiment evaluates three scLightGAT variants while keeping the remaining preprocessing, training, and evaluation settings unchanged:
 
-- **Within-batch positive weight:** `alpha` values from `0.0` to `1.0` in increments of `0.1`. The default scSCI setting is `0.1`; `1.0` gives equal weight to within- and cross-batch positive pairs and is reported as "Without weighting."
-- **Encoder depth:** one (`512`), two (`512, 256`), or three (`512, 256, 128`) hidden layers with the Tanh activation and `alpha=0.1`.
-- **Activation function:** Sigmoid, Tanh, or ReLU with the three-layer encoder and `alpha=0.1`.
+- **No C-DVAE (`No_CDVAE`):** Removes the C-DVAE representation from the full pipeline.
+- **No GAT (`No_GAT`):** Removes graph-attention refinement from the full pipeline.
+- **LightGBM only (`Only_LightGBM`):** Uses the DGE-based LightGBM classifier without C-DVAE or GAT.
 
-Run every ablation condition for all three datasets from the repository root:
+Run the main experiment first. For each broad, CAF, and subtype task, copy the corresponding five-run seed schedule and then run all three ablation variants from the repository root:
 
 ```bash
-bash experiments/ablation/run_script.sh all \
-  --dataset immune "<immune_dataset_path>" batch final_annotation \
-  --dataset lung "<lung_dataset_path>" batch cell_type \
-  --dataset pancreas "<pancreas_dataset_path>" tech celltype \
-  --save_path "<result_path>/ablation" \
-  --plot_path "<plot_root>/ablation" \
-  --run_times "<repeat_time>"
+mkdir -p "<ablation_result_path>/.benchmark_state/seeds"
+cp "<full_result_path>/.benchmark_state/seeds"/run_{1..5}.json \
+  "<ablation_result_path>/.benchmark_state/seeds/"
+
+bash experiments/abltaion/run_script.sh \
+  --train_path "<train_path>" \
+  --test_path "<test_path>" \
+  --save_path "<ablation_result_path>" \
+  --train_celltype "<train_celltype_key>" \
+  --test_celltype "<test_celltype_key>" \
+  --train_batch "<train_batch_key>" \
+  --test_batch "<test_batch_key>" \
+  --test_batch_map "<test_batch_map>" \
+  --n_runs 5
 ```
 
-Each `--dataset` occurrence supplies the dataset name, H5AD path, batch key, and cell-type key, in that order. For each dataset, the runner evaluates 11 within-batch weights, three encoder depths, and three activation functions. Per-run results are written to `<result_path>/ablation/<dataset_name>/<condition>/<run_id>/`.
+Use the same dataset paths and metadata keys as the corresponding main-experiment task. Ablation outputs must remain under `experiments/abltaion/result`: use that directory for the broad task, its `CAF/` subdirectory for CAF, and `Subtype/<broad_type>/` for each subtype. Per-run results are stored below the `No_CDVAE`, `No_GAT`, and `Only_LightGBM` method directories.
 
-The runner automatically generates all six ablation figures after finishing each dataset, so no separate plotting command is required. The figures and their corresponding figure-data CSV files are written to `<plot_root>/ablation/<dataset_name>/`: the five-metric `alpha` panel, the encoder-depth panel, two activation-function panels, and the biological-conservation and batch-correction weighting panels.
+After all ablation runs finish, generate the comparison figures separately:
+
+```bash
+conda activate scLightGAT
+
+python3 experiments/abltaion/bar_chart.py \
+  --results_dir "<ablation_result_root>" \
+  --sclightgat_results_dir "<result_root>" \
+  --out_dir "<plot_root>/ablation/bar_chart"
+
+python3 experiments/abltaion/plot_umap.py \
+  --results_dir "<ablation_result_root>" \
+  --baseline_results_dir "<result_root>" \
+  --out_dir "<plot_root>/ablation/umap"
+
+python3 experiments/abltaion/heatmap.py \
+  --results_dir "<ablation_result_root>" \
+  --sclightgat_results_dir "<result_root>" \
+  --out_dir "<plot_root>/ablation/heatmap"
+```
 
 ## Citation
 
-Citation information for scSCI will be added once the associated manuscript is published or a DOI becomes available.
-
-<!-- # scLightGAT: A LightGBM-based Framework Integrating C-DVAE and GATs for Robust Single-cell RNA-seq Cell Type Annotation
-
-## Overview
-We propose **scLightGAT**, a Python-native, biologically informed, and computationally scalable framework for cell-type annotation. scLightGAT combines machine learning and deep learning techniques through a three-stage architecture:
-1. **C-DVAE**: Contrastive Denoising Variational Autoencoder extracts low-dimensional latent features from highly variable genes (HVGs).
-2. **LightGBM**: A gradient-boosted classifier uses the fused latent (Z) and DGE marker (M_DGE) features for an initial cell-type prediction.
-3. **GATs**: Graph Attention Networks refine LightGBM’s output by modeling neighborhood interactions on a single-cell graph (SCG).
-
-![scLightGAT Workflow](docs/figures/overall.png)
-
----
-
-## Installation
-
-```bash
-git clone https://github.com/chenh2lab/scLightGAT.git
-cd scLightGAT
-pip install -r requirements.txt
-pip install -e .
-```
-
-## Data Availability & Setup
-
-The training and testing datasets for scLightGAT are hosted on Hugging Face.
-
-**Option 1: Preprocessing in Local**
-Using this option, will download data from GEO database and ot
-
-Recommand python vesrion 3.10
-```bash
-```
-
-```python
-```
-
-**Option 2: Manual Download**
-Download manually from [Hugging Face Datasets](https://huggingface.co/datasets/Alfiechuang/scLightGAT) and place the folders in `data/scLightGAT_data/`.
-
-**Option 3: Python Access**
-```python
-from huggingface_hub import hf_hub_download
-import scanpy as sc
-
-path = hf_hub_download(repo_id="Alfiechuang/scLightGAT", filename="Integrated_training/train.h5ad", repo_type="dataset")
-adata = sc.read_h5ad(path)
-```
-
----
-
-## Quick Start (Shell Script)
-
-We recommend using the provided wrapper script `run_sclight.gat.sh` for all operations. It handles environment setup (if configured) and simplifies argument passing.
-
-### 1. Standard Training
-Run on a specific dataset using default settings (DVAE=5 epochs, GAT=300 epochs):
-
-```bash
-./run_sclight.gat.sh GSE115978
-```
-
-Run on **all** available datasets:
-```bash
-./run_sclight.gat.sh
-```
-
-### 2. Hyperparameter Optimization (Optuna)
-To automatically tune parameters (LightGBM, DVAE, GAT) for maximum accuracy on your training data:
-
-```bash
-# Recommended: 20-30 trials
-./run_sclight.gat.sh --optimize --optuna-trials 20 sapiens_full
-```
-This runs the **scLightGAT Optimization Pipeline**, displaying progress bars for each model and saving the best parameters to `dvae_optimization_results.json` and `gat_optimization_results.json`.
-
-### 3. Hierarchical Classification (Subtypes)
-For datasets requiring fine-grained annotation (CD4+T, CD8+T, B cells, Plasma, DC subtypes), use the `--hierarchical` flag:
-
-```bash
-./run_sclight.gat.sh --hierarchical GSE115978
-```
-*Requires `Celltype_subtraining` column in training data.*
-
-### 4. CAF Mode (Cancer-Associated Fibroblasts)
-Run training/testing on specific CAF datasets:
-
-```bash
-./run_sclight.gat.sh --caf
-```
-
-### 5. Inference-Only Mode
-Skip training and use pre-trained models saved in `saved_models/`:
-
-```bash
-./run_sclight.gat.sh --inference-only GSE123139
-```
-
----
-
-## Advanced Usage
-
-### Custom Ground Truth & Batch Keys
-The pipeline automatically detects ground truth columns (e.g., `Manual_celltype`, `final_celltype`). You can also specify them manually:
-
-```bash
-./run_sclight.gat.sh --gt-key "My_Labels" --batch-key "sample_id" GSE153935
-```
-
-### Key Arguments
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--dvae-epochs` | Epochs for C-DVAE | 5 |
-| `--gat-epochs` | Epochs for GAT | 300 |
-| `--optimize` | Enable Optuna optimization | False |
-| `--optuna-trials`| Number of optimization trials | 10 |
-| `--hierarchical` | Enable subtype prediction | False |
-| `--caf` | Use CAF-specific data | False |
-| `--inference-only`| Use pre-trained models | False |
-
----
-
-## Experimental Results
-
-Results are saved to `sclightgat_exp_results/<DATASET_NAME>/<TIMESTAMP>/`, containing:
-- **`adata_with_predictions.h5ad`**: Final AnnData with `scLightGAT_pred`.
-- **`accuracy_report.txt`**: Detailed accuracy metrics.
-- **`umap_comparison.png`**: Side-by-side UMAP of Ground Truth vs scLightGAT.
-- **`scLightGAT_run.log`**: Full execution logs (including debug info).
-- **Optimization Results**: JSON files with best parameters (if optimization was run).
-
----
-
-## Data Structure
-
-### Training Data (`train.h5ad`)
-- `.X`: Log-transformed expression matrix.
-- `.obs['Celltype_training']`: Broad cell type labels.
-- `.obs['Celltype_subtraining']`: Subtype labels (for Hierarchical mode).
-
-### Test Data (`<dataset>.h5ad`)
-- `.X`: Log-transformed expression matrix.
-- `.obsm['X_umap']`: UMAP coordinates (automatically computed if missing).
-
----
-
-## Authors
-**Tsung-Hsien Chuang**, **Cheng-Yu Li**, **Liang-Chuan Lai**, **Tzu-Pin Lu**, **Mong-Hsun Tsai**, **Eric Y. Chuang***, and **Hsiang-Han Chen***
-
-*Correspondence to: Hsiang-Han Chen (chenh2@ntnu.edu.tw) and Eric Y. Chuang (chuangey@ntu.edu.tw).*
-
----
-© 2025 scLightGAT Team. All rights reserved. -->
+Citation information for scLightGAT will be added once the associated manuscript is published or a DOI becomes available.
