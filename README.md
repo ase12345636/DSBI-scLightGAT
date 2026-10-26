@@ -2,9 +2,9 @@
 
 scLightGAT is a supervised reference-to-query framework for single-cell RNA-seq cell-type annotation. It combines a contrastive denoising variational autoencoder (C-DVAE), a LightGBM classifier, and a graph attention network (GAT), allowing expression-derived features, discriminative marker genes, and local cell-neighborhood information to contribute to the final prediction.
 
-During reference training, scLightGAT selects differentially expressed marker genes and up to 3,000 highly variable genes from the labelled reference data only. The C-DVAE learns a 128-dimensional latent representation using reconstruction, KL-divergence, and supervised contrastive objectives. LightGBM combines marker-gene expression with this latent representation to produce initial class probabilities; out-of-fold probabilities are used when fitting the downstream GAT. A two-layer residual GAT then refines the initial predictions using marker-gene expression, latent features, and LightGBM probabilities on a 10-nearest-neighbor graph built in PCA space, with Harmony correction when valid batch metadata are supplied.
+During reference training, scLightGAT selects differentially expressed marker genes and up to 3,000 highly variable genes from the labeled reference data only. The C-DVAE learns a 128-dimensional latent representation using reconstruction, KL divergence, and supervised contrastive objectives. LightGBM combines marker-gene expression with this latent representation to produce initial class probabilities; out-of-fold probabilities are used when fitting the downstream GAT. A two-layer residual GAT then refines the initial predictions using marker-gene expression, latent features, and LightGBM probabilities on a 10-nearest-neighbor graph built in PCA space, with Harmony correction when valid batch metadata are supplied.
 
-The fitted feature schemas and model components are reused for independent query datasets. Query genes are aligned to the reference DGE and HVG schemas, missing genes are imputed with reference-derived means, and each query graph is constructed independently from query expression and optional batch metadata without using query cell-type labels. The initial LightGBM labels are retained in `adata.obs["scLightGAT_rawpred"]`, while the GAT-refined annotations and class probabilities are stored in `adata.obs["scLightGAT_pred"]` and `adata.obsm["annotation_scores"]`.
+The fitted feature schemas and model components are reused for independent query datasets. Query genes are aligned to the reference DEG and HVG feature sets, missing genes are imputed with reference-derived means, and each query graph is constructed independently from query expression and optional batch metadata without using query cell-type labels. The initial LightGBM labels are retained in `adata.obs["scLightGAT_rawpred"]`, while the GAT-refined annotations and class probabilities are stored in `adata.obs["scLightGAT_pred"]` and `adata.obsm["annotation_scores"]`.
 
 ![Overview of the scLightGAT architecture](docs/overview.jpg)
 
@@ -18,7 +18,7 @@ The fitted feature schemas and model components are reused for independent query
 
 ### Input requirements
 
-- A labelled reference dataset (`--train_path`) and one or more query datasets (`--test_path`) in AnnData (`.h5ad`) format. `--test_path` may point to a single file or a directory of `.h5ad` files.
+- A labeled reference dataset (`--train_path`) and one or more query datasets (`--test_path`) in AnnData (`.h5ad`) format. `--test_path` may point to a single file or a directory of `.h5ad` files.
 - Quality-controlled, library-size-normalized, and `log1p`-transformed expression in `adata.X` and `adata.layers["log_transformed"]`. The reference dataset must also contain raw counts in `adata.layers["counts"]`.
 - A reference cell-type column in `adata.obs`, specified with `--train_celltype`, containing at least two classes with at least two cells per class. Query labels are optional and are used only for evaluation.
 - Batch columns are optional and can be specified with `--train_batch` and `--test_batch`; use `None` when batch information is unavailable.
@@ -38,7 +38,7 @@ python -m pip check
 
 ## Data Availability
 
-The datasets used to train and evaluate scLightGAT are summarized below. The five training datasets were integrated into a 236,975 cells reference, while the testing datasets were retained as independent query datasets. Cell counts refer to the cells retained in the final model-ready datasets.
+The datasets used to train and evaluate scLightGAT are summarized below. The five training datasets were integrated into a reference comprising 236,975 cells, while the testing datasets were retained as independent query datasets. Cell counts refer to the cells retained in the final model-ready datasets.
 
 <table>
 <thead>
@@ -193,7 +193,7 @@ When `--test_path` is a directory, use `--test_batch_map` to override the defaul
 
 Each mapping key must match an `.h5ad` file name without its extension. Files omitted from the map use the value of `--test_batch`; omit both options when query batch information is unavailable.
 
-`--train_path`, `--test_path`, and `--save_path` are required. `--test_path` may point to one `.h5ad` file or a directory of `.h5ad` files; in the latter case, the reference is trained once per run and applied to every query file. The optional defaults are `--train_celltype Celltype_training`, `--test_celltype Celltype_training`, `--train_batch Data_source`, no query batch column, and `--n_runs 1`. Set `--test_celltype None` for an unlabelled query; predictions are still generated, but evaluation metrics are skipped.
+`--train_path`, `--test_path`, and `--save_path` are required. `--test_path` may point to one `.h5ad` file or a directory of `.h5ad` files; in the latter case, the reference is trained once per run and applied to every query file. The optional defaults are `--train_celltype Celltype_training`, `--test_celltype Celltype_training`, `--train_batch Data_source`, no query batch column, and `--n_runs 1`. Set `--test_celltype None` for an unlabeled query; predictions are still generated, but evaluation metrics are skipped.
 
 ## Reproducing the Experiments
 
@@ -267,7 +267,7 @@ Repeat both commands with the following paths:
 - **CAF:** `<data_root>/caf.data/caf_train.h5ad` to `<data_root>/caf.data/caf_test.h5ad`, saved to `<result_root>/CAF`.
 - **Subtype:** `<data_root>/Subtype/<broad_type>_train.h5ad` to `<data_root>/Subtype/<broad_type>_test.h5ad`, saved to `<result_root>/Subtype/<broad_type>`, for `B_cell`, `CD4_T_cell`, `CD8_T_cell`, `DC`, and `Plasma_cell`.
 
-All methods receive the same reference and query files. Query cell-type labels are passed only to the shared evaluation pipeline and are not available during model training or prediction.
+All methods use the same reference and query datasets. Query cell-type labels are used exclusively for evaluation and are excluded from feature selection, model fitting, and prediction.
 
 After scLightGAT and all comparison methods have finished, activate the `scLightGAT` environment and generate the metric, runtime, and UMAP figures. For each method, the UMAP script selects the completed run with the highest balanced accuracy.
 
@@ -298,7 +298,7 @@ This experiment evaluates three scLightGAT variants while keeping the remaining 
 
 - **No C-DVAE (`No_CDVAE`):** Removes the C-DVAE representation from the full pipeline.
 - **No GAT (`No_GAT`):** Removes graph-attention refinement from the full pipeline.
-- **LightGBM only (`Only_LightGBM`):** Uses the DGE-based LightGBM classifier without C-DVAE or GAT.
+- **LightGBM only (`Only_LightGBM`):** Uses the marker-gene-based LightGBM classifier without C-DVAE or GAT.
 
 Run the main experiment first. For each broad, CAF, and subtype task, copy the corresponding five-run seed schedule and then run all three ablation variants from the repository root:
 
@@ -307,7 +307,7 @@ mkdir -p "<ablation_result_path>/.benchmark_state/seeds"
 cp "<full_result_path>/.benchmark_state/seeds"/run_{1..5}.json \
   "<ablation_result_path>/.benchmark_state/seeds/"
 
-bash experiments/abltaion/run_script.sh \
+bash experiments/ablation/run_script.sh \
   --train_path "<train_path>" \
   --test_path "<test_path>" \
   --save_path "<ablation_result_path>" \
@@ -319,24 +319,24 @@ bash experiments/abltaion/run_script.sh \
   --n_runs 5
 ```
 
-Use the same dataset paths and metadata keys as the corresponding main-experiment task. Ablation outputs must remain under `experiments/abltaion/result`: use that directory for the broad task, its `CAF/` subdirectory for CAF, and `Subtype/<broad_type>/` for each subtype. Per-run results are stored below the `No_CDVAE`, `No_GAT`, and `Only_LightGBM` method directories.
+Use the same dataset paths and metadata keys as the corresponding main-experiment task. Ablation outputs must remain under `experiments/ablation/result`: use that directory for the broad task, its `CAF/` subdirectory for CAF, and `Subtype/<broad_type>/` for each subtype. Per-run results are stored below the `No_CDVAE`, `No_GAT`, and `Only_LightGBM` method directories.
 
 After all ablation runs finish, generate the comparison figures separately:
 
 ```bash
 conda activate scLightGAT
 
-python3 experiments/abltaion/bar_chart.py \
+python3 experiments/ablation/bar_chart.py \
   --results_dir "<ablation_result_root>" \
   --sclightgat_results_dir "<result_root>" \
   --out_dir "<plot_root>/ablation/bar_chart"
 
-python3 experiments/abltaion/plot_umap.py \
+python3 experiments/ablation/plot_umap.py \
   --results_dir "<ablation_result_root>" \
   --baseline_results_dir "<result_root>" \
   --out_dir "<plot_root>/ablation/umap"
 
-python3 experiments/abltaion/heatmap.py \
+python3 experiments/ablation/heatmap.py \
   --results_dir "<ablation_result_root>" \
   --sclightgat_results_dir "<result_root>" \
   --out_dir "<plot_root>/ablation/heatmap"
